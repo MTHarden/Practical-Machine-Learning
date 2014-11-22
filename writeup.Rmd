@@ -1,0 +1,128 @@
+---
+title: "Practical Machine Learning - Project"
+author: "Mitch Harden"
+date: "11/22/2014"
+output: html_document
+---
+
+# Executive Summary
+This project describes the creation of a prediction algorithem that will predict the performance of an exercise ("classe"). The model should be able to predict 20 test cases with 100% accuracy. 
+
+## Load Packages, Read, Tidy, and Reduce the Data
+```{r packages, eval=FALSE, warning = FALSE}
+library(caret)
+library(plyr)
+library(dplyr)
+library(psych)
+library(doParallel)
+library(e1071)
+library(C50)
+```
+
+```{r eval=FALSE}
+training <- read.csv("pml-training.csv", header = TRUE)
+
+testing <- read.csv("pml-testing.csv", header = TRUE)
+```
+
+The dataset can be reduced to only the most meaningful variables by eliminating variables that have near zero variability (NZV), variables that contain non-numerical values, and variables with primarily NULL or NA values. 
+
+# Near Zero Method
+```{r nearZero, eval=FALSE}
+## Create a NZV dataframe.
+nz <- nearZeroVar(training, saveMetrics = TRUE)
+
+## Create a variable in the NZV dataframe that maps to the column number of the testing data.
+nz$variable <- 1:160
+
+## Filter to keep FALSE =  "nzv" . 
+
+nz <- filter(nz, nzv == FALSE)
+
+## Select the columns of the training data that correspond to the remaining 100 in NZV. The first two variables have been excluded as well because they are non-numeric.
+
+training <- select(training, 3:5, 7:11, 18:19, 21:22, 24:25, 27:50, 60:68, 76:77, 80, 83:86, 93:94, 96:97, 99:100, 102:124, 132, 135, 138, 140:141, 151:160)
+```
+
+62 non-predictive variables were removed.
+
+## Seek and Remove Invalid Variables
+
+The variables containing many NA and NULL values are considered invalid for purposes of this analysis. They were removed using the following code:
+
+```{r Remove NA and NULL, eval=FALSE}
+# Create a dataframe using the psych package to identify some summary statistics of the training data.
+a <- describe(training)
+
+# The 'n' vector are the variables that contain all 19,622 observations.
+
+a <- filter(a, n == 19622)
+
+# Select the columns of the training data that correspond to the remaining 57 observations in the 'a' dataframe. 
+
+training <- select(training, 1:8, 25:37, 39:47, 52:54, 61, 72:83, 87, 89:98)
+```
+
+There are 57 variables in the final data set that will be used.. 
+
+## Build The Model
+
+The data was then split with 60% assigned to training and the remaining 40% placed in a new  validating dataframe called "valid". 
+
+```{r partition, eval=FALSE}
+# Create an index variable
+inTrain <- createDataPartition(y = training$classe, p = 0.60, list = FALSE)
+
+# Subset the data into two using the index
+training <- training[inTrain,]
+
+# Create a new testing set from the training data called 'valid' 
+valid <- training[-inTrain,]
+```
+
+Since the outcome variable has discrete values the C50 method was used for a model with simple cross validation based on the remaining 57 variables. 
+
+At this point, the model was created using all 57 remaining variables. I selected C50 as the method in my model because it seemed to be an appropriate classification package given that my outcome variable has discrete values. I used simple cross validation because it seemed simple, yet powerful enough to get the job done. The number of times the model was cross validated was limited to 4 due to limitations on the computing power of my machine.
+
+```{r modelFit, eval=FALSE}
+set.seed(1234)
+
+registerDoParallel(cores = 4)
+
+modFit <- train(classe ~., data = training, method = "C5.0", prox = TRUE, trControl = trainControl("cv", number = 4, verboseIter = TRUE, allowParallel = TRUE))
+```
+
+The model is then used to predict values on the validation set called "valid".
+
+```{r predict, eval=FALSE}
+predictions <- predict(modFit, newdata = valid)
+head(predictions)
+```
+
+A confusion matrix showed the performance of th emodel.
+
+```{r confusionMatrix, eval=FALSE}
+confusionMatrix(predictions, valid$classe)
+```
+
+## Test Results
+
+The confusion matrix demonstrated that the model worked very well with an accuracy of 100% within a 95% confidence interval. The model also performed 100% accurately when predicting the classe values of a new test data set consisting of 20 test cases. 
+
+```{r answers, eval=FALSE}
+
+answers <- as.character(predict(modFit, newdata=testing))
+
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+
+pml_write_files(answers)
+```
+
